@@ -1,0 +1,60 @@
+services:
+  db:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-amvatgram}
+      POSTGRES_USER: ${POSTGRES_USER:-amvatgram}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile.api
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      API_PORT: 4000
+      DATABASE_URL: postgres://${POSTGRES_USER:-amvatgram}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-amvatgram}
+      CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost}
+      SESSION_SECRET: ${SESSION_SECRET:?Set SESSION_SECRET}
+      OTP_HMAC_KEY: ${OTP_HMAC_KEY:?Set OTP_HMAC_KEY}
+      NATIONAL_CODE_HMAC_KEY: ${NATIONAL_CODE_HMAC_KEY:?Set NATIONAL_CODE_HMAC_KEY}
+      PAYMENT_WEBHOOK_SECRET: ${PAYMENT_WEBHOOK_SECRET:?Set PAYMENT_WEBHOOK_SECRET}
+      PAYMENT_GATEWAY_BASE_URL: ${PAYMENT_GATEWAY_BASE_URL:?Set PAYMENT_GATEWAY_BASE_URL}
+      PAYMENT_RETURN_URL: ${PAYMENT_RETURN_URL:-http://localhost/payment-return}
+      OTP_DELIVERY: ${OTP_DELIVERY:?Set a real OTP provider}
+      ADMIN_USERNAME: ${ADMIN_USERNAME:?Set ADMIN_USERNAME}
+      ADMIN_PASSWORD_HASH: ${ADMIN_PASSWORD_HASH:?Set ADMIN_PASSWORD_HASH}
+    depends_on:
+      db:
+        condition: service_healthy
+    command: ["sh", "-c", "node --import tsx backend/server/scripts/migrate.ts && node --import tsx backend/server/index.ts"]
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:4000/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+  web:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile.web
+      args:
+        VITE_API_URL: ""
+    restart: unless-stopped
+    ports:
+      - "${WEB_PORT:-80}:80"
+    depends_on:
+      api:
+        condition: service_healthy
+
+volumes:
+  pgdata:

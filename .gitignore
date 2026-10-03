@@ -1,0 +1,15 @@
+node_modules/
+build/
+dist/
+coverage/
+.DS_Store
+*.log
+.env*
+!.env.example
+admin-cookies.txt
+amvatgram-cookies.txt
+user-cookies.txt
+amvatgram-github-check/
+amvatgram/
+amvatgram-before-schema.backup
+xss-test.json

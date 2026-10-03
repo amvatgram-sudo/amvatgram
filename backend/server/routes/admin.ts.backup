@@ -1,0 +1,270 @@
+﻿
+import { Router } from 'express';
+import { rateLimit } from '../middleware/security';
+import { config } from '../config';
+import { query } from '../db';
+import {
+  clearSessionCookie,
+  requireAuth,
+  requireRole,
+  requirePermission,
+  AuthenticatedRequest,
+  setSessionCookie,
+} from '../middleware/auth';
+import { randomToken, sha256, verifyPassword } from '../services/crypto';
+import { audit } from '../services/audit';
+
+const router = Router();
+
+router.post('/login', rateLimit({ windowMs: 15 * 60 * 1000, max: 8, key: 'admin-login' }), async (req, res, next) => {
+  try {
+    const username = String(req.body?.username || '');
+    const password = String(req.body?.password || '');
+
+    if (!config.adminUsername || !config.adminPasswordHash) {
+      return res.status(503).json({ error: 'ADMIN_AUTH_NOT_CONFIGURED' });
+    }
+
+    if (username !== config.adminUsername || !(await verifyPassword(password, config.adminPasswordHash))) {
+      return res.status(401).json({ error: 'INVALID_ADMIN_CREDENTIALS' });
+    }
+
+    let admin = (
+      await query<any>(
+        `SELECT id, full_name, role, madhhab, is_verified
+         FROM users
+         WHERE phone = $1
+         LIMIT 1`,
+        [`admin:${username}`]
+      )
+    ).rows[0];
+
+    if (!admin) {
+      admin = (
+        await query<any>(
+          `INSERT INTO users(phone, full_name, role, madhhab, is_verified)
+           VALUES($1,$2,'super_admin','sunni',TRUE)
+           RETURNING id, full_name, role, madhhab, is_verified`,
+          [`admin:${username}`, `Administrator ${username}`]
+        )
+      ).rows[0];
+    } else if (admin.role !== 'super_admin') {
+      admin = (
+        await query<any>(
+          `UPDATE users
+           SET role='super_admin',
+               is_verified=TRUE,
+               updated_at=NOW()
+           WHERE id=$1
+           RETURNING id, full_name, role, madhhab, is_verified`,
+          [admin.id]
+        )
+      ).rows[0];
+    }
+
+    const token = randomToken(32);
+    const expiresMs = config.sessionDays * 24 * 60 * 60 * 1000;
+
+    await query(
+      `INSERT INTO sessions(user_id, token_hash, expires_at)
+       VALUES($1,$2,NOW() + ($3 || ' days')::interval)`,
+      [admin.id, sha256(token), config.sessionDays]
+    );
+
+    setSessionCookie(res, token, expiresMs);
+
+    const auditReq = req as AuthenticatedRequest;
+
+    auditReq.user = {
+      id: admin.id,
+      fullName: admin.full_name,
+      role: admin.role,
+      madhhab: admin.madhhab,
+      isVerified: admin.is_verified,
+    };
+
+    await audit(auditReq, 'ADMIN_LOGIN', 'user', admin.id);
+
+    res.json({
+      user: {
+        id: admin.id,
+        fullName: admin.full_name,
+        role: admin.role,
+        madhhab: admin.madhhab,
+        isVerified: admin.is_verified,
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.get('/audit', requireAuth, async (req: AuthenticatedRequest, res, next) => {
+  try {
+    if (!req.user) {
+      return res.status(401).json({ error: 'UNAUTHENTICATED' });
+    }
+
+    const allowed = (
+      await query<any>(
+        `SELECT EXISTS (
+          SELECT 1
+          FROM role_permissions rp
+          JOIN roles r ON r.id=rp.role_id
+          JOIN permissions p ON p.id=rp.permission_id
+          WHERE r.name=$1
+            AND p.name='AUDIT_READ'
+        ) AS allowed`,
+        [req.user.role]
+      )
+    ).rows[0]?.allowed;
+
+    if (!allowed && req.user.role !== 'super_admin') {
+      return res.status(403).json({ error: 'FORBIDDEN' });
+    }
+
+    const rows = (
+      await query<any>(
+        `SELECT
+           a.id,
+           a.created_at,
+           a.actor_role,
+           a.action,
+           a.target_type,
+           a.target_id,
+           a.metadata,
+           u.full_name AS actor_name
+         FROM audit_logs a
+         LEFT JOIN users u ON u.id=a.actor_user_id
+         ORDER BY a.created_at DESC
+         LIMIT 500`
+      )
+    ).rows;
+
+    res.json({ logs: rows });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.get(
+  '/me',
+  requireAuth,
+  requireRole('moderator', 'super_admin'),
+  (req: AuthenticatedRequest, res) => {
+    res.json({ user: req.user });
+  }
+);
+
+router.post(
+  '/logout',
+  requireAuth,
+  requireRole('moderator', 'super_admin'),
+  async (req: AuthenticatedRequest, res, next) => {
+    try {
+      const raw = (req.headers.cookie || '')
+        .split(';')
+        .map((x) => x.trim())
+        .find((x) => x.startsWith(`${config.cookieName}=`));
+
+      if (raw) {
+        const token = decodeURIComponent(
+          raw.slice(config.cookieName.length + 1)
+        );
+
+        await query(
+          `UPDATE sessions
+           SET revoked_at = NOW()
+           WHERE token_hash = $1`,
+          [sha256(token)]
+        );
+      }
+
+      await audit(req, 'ADMIN_LOGOUT', 'user', req.user!.id);
+
+      clearSessionCookie(res);
+
+      res.json({ ok: true });
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+/**
+ * دریافت درخواست‌های احراز مالک آگهی
+ *
+ * فقط moderator و super_admin که مجوز
+ * OWNER_VERIFICATION_REVIEW
+ * را دارند می‌توانند این اطلاعات را ببینند.
+ *
+ * کدهای ملی خام هرگز از دیتابیس خوانده نمی‌شوند
+ * و در پاسخ API نیز ارسال نمی‌شوند.
+ */
+router.get(
+  '/owner-verifications',
+  requireAuth,
+  requirePermission('OWNER_VERIFICATION_REVIEW'),
+  async (req: AuthenticatedRequest, res, next) => {
+    try {
+      const result = await query<any>(
+        `SELECT
+           ov.id,
+           ov.user_id,
+           ov.relation,
+           ov.status,
+           ov.provider,
+           ov.provider_reference,
+           ov.rejection_reason,
+           ov.created_at,
+           ov.reviewed_at,
+           u.full_name AS user_full_name,
+           u.phone AS user_phone
+         FROM owner_verifications ov
+         JOIN users u ON u.id = ov.user_id
+         WHERE ov.status IN ('pending', 'manual_review')
+         ORDER BY ov.created_at ASC
+         LIMIT 100`
+      );
+
+      res.json({
+        verifications: result.rows,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+router.post(
+  '/owner-verifications/:id/approve',
+  requireAuth,
+  requirePermission('OWNER_VERIFICATION_REVIEW'),
+  async (req: AuthenticatedRequest, res, next) => {
+    try {
+      const result = await query<any>(
+        `UPDATE owner_verifications
+         SET status = 'verified', reviewed_at = NOW(), rejection_reason = NULL
+         WHERE id = $1 AND status IN ('pending', 'manual_review')
+         RETURNING id, user_id, relation, status, provider, provider_reference, created_at, reviewed_at`,
+        [req.params.id]
+      );
+
+      const verification = result.rows[0];
+      if (!verification) {
+        return res.status(409).json({ error: 'VERIFICATION_NOT_PENDING' });
+      }
+
+      await audit(req, 'OWNER_VERIFICATION_APPROVED', 'owner_verification', verification.id, {
+        userId: verification.user_id,
+        relation: verification.relation,
+      });
+
+      res.json({ verification });
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+export default router;
