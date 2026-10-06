@@ -140,8 +140,8 @@ router.patch('/:id', requireAuth, requirePermission('AD_EDIT_OWN'), async (req: 
     if (!EDITABLE_STATUSES.has(nextStatus)) return res.status(400).json({ error: 'INVALID_AD_STATUS' });
     if (!isModerator && ['approved', 'suspended', 'archived'].includes(ad.status)) return res.status(409).json({ error: 'AD_NOT_EDITABLE' });
     const result = await query<any>(
-      `UPDATE ads SET payload=$1, status=$2, rejection_reason=NULL,
-       approved_at=CASE WHEN $2='approved' THEN COALESCE(approved_at,NOW()) ELSE approved_at END,
+      `UPDATE ads SET payload=$1, status=$2::text, rejection_reason=NULL,
+       approved_at=CASE WHEN $2::text='approved' THEN COALESCE(approved_at,NOW()) ELSE approved_at END,
        updated_at=NOW() WHERE id=$3
        RETURNING id, tracking_code, status, payload, view_count, heart_count, created_at, updated_at, approved_at`,
       [safePayload, nextStatus, req.params.id]
