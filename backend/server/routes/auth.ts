@@ -1,4 +1,4 @@
-import { Router } from 'express';
+﻿import { Router } from 'express';
 import { randomInt } from 'node:crypto';
 import { config } from '../config';
 import { query } from '../db';
@@ -59,6 +59,7 @@ router.post('/verify-otp', rateLimit({ windowMs: 10 * 60 * 1000, max: 20, key: '
     const destination = normalizeDestination(String(req.body?.destination || ''));
     const code = String(req.body?.code || '').trim();
     const fullName = String(req.body?.fullName || '').trim().slice(0, 200) || 'کاربر امواتگرام';
+    const avatarUrl = String(req.body?.avatarUrl || '').trim().slice(0, 2000000);
     const madhhab = req.body?.madhhab === 'shia' ? 'shia' : 'sunni';
     if (!/^\d{6}$/.test(code)) return res.status(400).json({ error: 'INVALID_OTP' });
 
@@ -77,7 +78,7 @@ router.post('/verify-otp', rateLimit({ windowMs: 10 * 60 * 1000, max: 20, key: '
 
     const metadata = challenge.metadata || {};
     const existing = await query<any>(
-      `SELECT id, phone, email, telegram_id, full_name, role, madhhab, is_verified, subscription_plan, subscription_expires_at FROM users
+      `SELECT id, phone, email, telegram_id, full_name, avatar_url, role, madhhab, is_verified, subscription_plan, subscription_expires_at FROM users
        WHERE phone = $1 OR email = $1 OR telegram_id = $1 LIMIT 1`, [destination]
     );
     let user = existing.rows[0];
@@ -85,14 +86,14 @@ router.post('/verify-otp', rateLimit({ windowMs: 10 * 60 * 1000, max: 20, key: '
       const fields = provider === 'email' ? ['email'] : provider === 'telegram' ? ['telegram_id'] : ['phone'];
       const column = fields[0];
       const created = await query<any>(
-        `INSERT INTO users(${column}, full_name, madhhab, is_verified) VALUES($1,$2,$3,TRUE)
-         RETURNING id, phone, email, telegram_id, full_name, role, madhhab, is_verified, subscription_plan, subscription_expires_at`,
-        [destination, fullName || metadata.fullName || 'کاربر امواتگرام', madhhab]
+        `INSERT INTO users(${column}, full_name, avatar_url, madhhab, is_verified) VALUES($1,$2,$3,$4,TRUE)
+         RETURNING id, phone, email, telegram_id, full_name, avatar_url, role, madhhab, is_verified, subscription_plan, subscription_expires_at`,
+        [destination, fullName || metadata.fullName || 'کاربر امواتگرام', avatarUrl || null, madhhab]
       );
       user = created.rows[0];
     } else {
-      await query(`UPDATE users SET full_name = COALESCE(NULLIF($2,''), full_name), madhhab = $3, is_verified = TRUE, updated_at = NOW() WHERE id = $1`, [user.id, fullName, madhhab]);
-      user = { ...user, full_name: fullName || user.full_name, madhhab, is_verified: true };
+      await query(`UPDATE users SET full_name = COALESCE(NULLIF($2,''), full_name), avatar_url = COALESCE(NULLIF($3,''), avatar_url), madhhab = $4, is_verified = TRUE, updated_at = NOW() WHERE id = $1`, [user.id, fullName, avatarUrl, madhhab]);
+      user = { ...user, full_name: fullName || user.full_name, avatar_url: avatarUrl || user.avatar_url, madhhab, is_verified: true };
     }
 
     const token = randomToken(32);
@@ -102,7 +103,7 @@ router.post('/verify-otp', rateLimit({ windowMs: 10 * 60 * 1000, max: 20, key: '
     await audit(req as AuthenticatedRequest, 'AUTH_LOGIN', 'user', user.id, { provider });
 
     res.json({
-      user: { id: user.id, phone: user.phone, email: user.email, fullName: user.full_name, role: user.role, madhhab: user.madhhab, isVerified: user.is_verified, subscriptionPlan: user.subscription_plan || 'none', subscriptionExpiresAt: user.subscription_expires_at || undefined, createdAt: new Date().toISOString() }
+      user: { id: user.id, phone: user.phone, email: user.email, fullName: user.full_name, avatarUrl: user.avatar_url || undefined, role: user.role, madhhab: user.madhhab, isVerified: user.is_verified, subscriptionPlan: user.subscription_plan || 'none', subscriptionExpiresAt: user.subscription_expires_at || undefined, createdAt: new Date().toISOString() }
     });
   } catch (error) { next(error); }
 });
@@ -127,10 +128,10 @@ router.post('/owner-verification', requireAuth, rateLimit({ windowMs: 10 * 60 * 
 
 router.get('/me', requireAuth, async (req: AuthenticatedRequest, res, next) => {
   try {
-    const row = (await query<any>(`SELECT id,full_name,phone,email,role,madhhab,is_verified,subscription_plan,subscription_expires_at,
+    const row = (await query<any>(`SELECT id,full_name,phone,email,avatar_url,role,madhhab,is_verified,subscription_plan,subscription_expires_at,
       CASE WHEN role='owner' AND (subscription_expires_at IS NULL OR subscription_expires_at <= NOW()) THEN 'user' ELSE role END AS effective_role
       FROM users WHERE id=$1`, [req.user!.id])).rows[0];
-    res.json({ user: { id: row.id, fullName: row.full_name, phone: row.phone, email: row.email, role: row.effective_role || row.role, madhhab: row.madhhab, isVerified: row.is_verified, subscriptionPlan: row.subscription_plan || 'none', subscriptionExpiresAt: row.subscription_expires_at || undefined } });
+     res.json({ user: { id: row.id, fullName: row.full_name, phone: row.phone, email: row.email, avatarUrl: row.avatar_url || undefined, role: row.effective_role || row.role, madhhab: row.madhhab, isVerified: row.is_verified, subscriptionPlan: row.subscription_plan || 'none', subscriptionExpiresAt: row.subscription_expires_at || undefined } });
   } catch (error) { next(error); }
 });
 
@@ -148,3 +149,7 @@ router.post('/logout', requireAuth, async (req: AuthenticatedRequest, res, next)
 });
 
 export default router;
+
+
+
+

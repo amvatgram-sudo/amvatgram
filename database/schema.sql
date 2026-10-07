@@ -232,3 +232,32 @@ INSERT INTO subscription_plans(id,title,duration_days,price_toman) VALUES
  ('3_months','اشتراک سه‌ماهه یادبود خاندان',90,199000),
  ('1_year','اشتراک سالانه یادبود جاودان',365,380000)
 ON CONFLICT (id) DO NOTHING;
+
+CREATE TABLE IF NOT EXISTS memorials (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  created_by TEXT REFERENCES users(id) ON DELETE SET NULL,
+  deceased_full_name VARCHAR(200) NOT NULL,
+  father_name VARCHAR(200),
+  avatar_url TEXT,
+  birth_date DATE,
+  death_date DATE NOT NULL,
+  description TEXT,
+  biography TEXT,
+  city VARCHAR(120),
+  family_contact_name VARCHAR(200),
+  family_contact_phone VARCHAR(32),
+  family_relationship VARCHAR(120),
+  family_consent BOOLEAN NOT NULL DEFAULT FALSE,
+  family_consent_at TIMESTAMPTZ,
+  family_consent_note TEXT,
+  status VARCHAR(32) NOT NULL DEFAULT 'draft' CHECK (status IN ('draft','awaiting_family_consent','approved','published','rejected','archived')),
+  approved_by TEXT REFERENCES users(id) ON DELETE SET NULL,
+  approved_at TIMESTAMPTZ,
+  published_at TIMESTAMPTZ,
+  view_count INTEGER NOT NULL DEFAULT 0 CHECK (view_count >= 0),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  );
+CREATE INDEX IF NOT EXISTS idx_memorials_status_created ON memorials(status, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_memorials_death_date ON memorials(death_date DESC);
+

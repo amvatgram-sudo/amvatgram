@@ -1,4 +1,4 @@
-const API_BASE = (import.meta.env.VITE_API_URL || '').replace(/\/$/, '');
+﻿const API_BASE = (import.meta.env.VITE_API_URL || '').replace(/\/$/, '');
 
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const response = await fetch(`${API_BASE}${path}`, {
@@ -16,6 +16,7 @@ export interface ApiUser {
   fullName: string;
   phone?: string;
   email?: string;
+  avatarUrl?: string;
   role: 'user' | 'owner' | 'moderator' | 'super_admin';
   madhhab: 'sunni' | 'shia';
   isVerified: boolean;
@@ -40,7 +41,7 @@ export interface ApiAd {
 export const api = {
   requestOtp: (body: { provider: string; destination: string; fullName?: string; madhhab: string }) =>
     request<{ ok: boolean; expiresInSeconds: number }>('/api/auth/request-otp', { method: 'POST', body: JSON.stringify(body) }),
-  verifyOtp: (body: { provider: string; destination: string; code: string; fullName?: string; madhhab: string }) =>
+  verifyOtp: (body: { provider: string; destination: string; code: string; fullName?: string; avatarUrl?: string; madhhab: string }) =>
     request<{ user: ApiUser }>('/api/auth/verify-otp', { method: 'POST', body: JSON.stringify(body) }),
   ownerVerification: (body: { ownerNationalCode: string; deceasedNationalCode: string; ownerRelation: string }) =>
     request<{ verification: { id: string; status: string } }>('/api/auth/owner-verification', { method: 'POST', body: JSON.stringify(body) }),
@@ -73,3 +74,5 @@ export const api = {
   listLocations: () => request<{ locations: any[] }>('/api/locations'),
   createLocation: (location: Record<string, any>) => request<{ location: any }>('/api/locations', { method: 'POST', body: JSON.stringify({ location }) }),
 };
+
+

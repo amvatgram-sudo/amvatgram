@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+﻿import React, { createContext, useContext, useState, useEffect } from 'react';
 import { AppContextType } from './AppContext';
 import { GriefAd, MosqueLocation, SystemAuditLog, UserProfile, Madhhab, CondolenceComment, PaymentTransaction, AppAppearanceConfig, UserAppearancePreferences, PaletteDefinition, FontDefinition, CardStyleDefinition, ThemeProfile, AppDisplayMode } from '../types';
 import { GLOBAL_LOCATIONS, INITIAL_LOGS } from '../data/mockData';
@@ -162,7 +162,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       if (cancelled) return;
       const profile: UserProfile = {
         id: user.id, fullName: user.fullName, phone: user.phone, email: user.email,
-        role: user.role, madhhab: user.madhhab, isVerified: user.isVerified,
+        role: user.role, avatarUrl: user.avatarUrl, madhhab: user.madhhab, isVerified: user.isVerified,
         subscriptionPlan: user.subscriptionPlan, subscriptionExpiresAt: user.subscriptionExpiresAt,
         createdAt: user.createdAt || new Date().toISOString(),
       };
@@ -581,7 +581,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const approvedAds = ads.filter(
-    (ad) => ad.status === 'approved' && ad.deceased.madhhab === activeMadhhabContext
+    (ad) => ad.status === 'approved' && ad.deceased?.madhhab === activeMadhhabContext
   );
 
   const pendingAds = ads.filter((ad) => ad.status === 'pending');
@@ -679,3 +679,5 @@ export const useApp = () => {
   }
   return context;
 };
+
+

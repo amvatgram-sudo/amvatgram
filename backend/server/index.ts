@@ -1,4 +1,4 @@
-import express from 'express';
+﻿import express from 'express';
 import cors from 'cors';
 import { config } from './config';
 import { pool } from './db';
@@ -7,6 +7,7 @@ import adminRoutes from './routes/admin';
 import adRoutes from './routes/ads';
 import paymentRoutes from './routes/payments';
 import locationRoutes from './routes/locations';
+import memorialRoutes from './routes/memorials';
 import { requireTrustedOrigin, securityHeaders } from './middleware/security';
 
 const app = express();
@@ -27,6 +28,7 @@ app.use('/api/admin', adminRoutes);
 app.use('/api/ads', adRoutes);
 app.use('/api/payments', paymentRoutes);
 app.use('/api/locations', locationRoutes);
+app.use('/api/memorials', memorialRoutes);
 
 app.use((req, res) => {
   res.status(404).json({ error: 'NOT_FOUND', requestId: res.getHeader('X-Request-Id') });
@@ -48,3 +50,4 @@ async function shutdown(signal: string) {
 }
 process.on('SIGTERM', () => void shutdown('SIGTERM'));
 process.on('SIGINT', () => void shutdown('SIGINT'));
+

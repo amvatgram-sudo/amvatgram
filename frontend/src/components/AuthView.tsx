@@ -143,11 +143,11 @@ export const AuthView: React.FC<AuthViewProps> = ({ forceOwnerFlow = false }) =>
     const destination = selectedProvider === 'email' ? emailAddress : selectedProvider === 'telegram' ? (telegramId || fullInternationalPhone) : fullInternationalPhone;
     setIsVerifying(true);
     try {
-      const result = await api.verifyOtp({ provider: selectedProvider, destination, code: otpCode, fullName, madhhab: selectedMadhhab });
+      const result = await api.verifyOtp({ provider: selectedProvider, destination, code: otpCode, fullName, avatarUrl, madhhab: selectedMadhhab });
       const user = result.user;
       loginUser({
         id: user.id, fullName: user.fullName, phone: user.phone, email: user.email, role: user.role,
-        madhhab: user.madhhab, isVerified: user.isVerified, createdAt: user.createdAt || new Date().toISOString()
+        avatarUrl: user.avatarUrl, madhhab: user.madhhab, isVerified: user.isVerified, createdAt: user.createdAt || new Date().toISOString()
       });
 
       if (authType === 'owner') {
